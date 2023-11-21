@@ -1,0 +1,327 @@
+#!/usr/bin/python3
+# COMP3311 21T3 Ass2 ... progression check for a given student
+
+import sys
+import psycopg2
+import re
+from helpers import getStudent, getProgram, getStream
+
+# define any local helper functions here
+
+### set up some globals
+
+usage = f"Usage: {sys.argv[0]} zID [Program Stream]"
+db = None
+
+### process command-line args
+
+argc = len(sys.argv)
+if argc < 2:
+  print(usage)
+  exit(1)
+zid = sys.argv[1]
+if zid[0] == 'z':
+  zid = zid[1:8]
+digits = re.compile("^\d{7}$")
+if not digits.match(zid):
+  print("Invalid student ID")
+  exit(1)
+
+progCode = None
+strmCode = None
+program_coreRequirements = []
+stream_coreRequirements = []
+program_electiveRequirements = []
+stream_electiveRequirements = []
+program_uocRequirements = 0
+program_uocCount = 0
+stream_uocRequirements = 0
+stream_uocCount = 0
+stream_electiveUOC = 0
+stream_electiveUOCcount = 0
+program_electiveUOC = 0
+program_electiveUOCcount = 0
+gened_UOC = 0
+stream_free_minUOC = 0
+stream_freeUOC = 0
+final_UOC = 0
+stream_coreClasses = []
+program_coreClasses = []
+stream_electiveClasses = []
+program_electiveClasses = []
+
+if argc == 4:
+  progCode = sys.argv[2]
+  strmCode = sys.argv[3]
+
+# manipulate database
+
+try:
+  with psycopg2.connect('dbname=ass2') as conn:
+    cursor = conn.cursor()
+    #GET SOLIDIFIED PROGRAM CODE AND STREAM CODE
+    if progCode is not None and strmCode is not None:
+      qry = '''
+      SELECT pr.code, st.code FROM People p
+      JOIN Students s ON (s.id = p.id)
+      JOIN Program_enrolments pe ON (pe.student = s.id)
+      JOIN Programs pr ON (pe.program = pr.id)
+      JOIN Stream_enrolments se ON (se.part_of = pe.id)
+      JOIN Streams st ON (se.stream = st.id)
+      JOIN Terms t ON (t.id = pe.term)
+      WHERE p.zid = %s AND pr.code = %s
+      ORDER BY t.code DESC;
+      '''
+      cursor.execute(qry, (zid, progCode,))
+      info = cursor.fetchone()
+      if info:
+        progCode = progCode
+        strmCode = strmCode
+      else:
+        print(f'Invalid student ID {zid}')
+        exit(2)
+
+      if progCode is not None and strmCode is None:
+        qry2 = '''
+        SELECT st.code FROM People p
+        JOIN Students s ON (s.id = p.id)
+        JOIN Program_enrolments pe ON (pe.student = s.id)
+        JOIN Programs pr ON (pe.program = pr.id)
+        JOIN Stream_enrolments se ON (se.part_of = pe.id)
+        JOIN Streams st ON (se.stream = st.id)
+        JOIN Terms t ON (t.id = pe.term)
+        WHERE p.zid = %s AND pr.code = %s
+        ORDER BY t.code DESC;
+        '''
+        cursor.execute(qry2, (zid, progCode,))
+        info = cursor.fetchone()
+        if info:
+          progCode = progCode
+          strmCode = info
+        else:
+          print(f'Invalid student ID {zid}')
+          exit(2)
+
+      if progCode is None and strmCode is None:
+        qry4 = '''
+        SELECT pr.code, st.code FROM People p
+        JOIN Students s ON (s.id = p.id)
+        JOIN Program_enrolments pe ON (pe.student = s.id)
+        JOIN Programs pr ON (pe.program = pr.id)
+        JOIN Stream_enrolments se ON (se.part_of = pe.id)
+        JOIN Streams st ON (se.stream = st.id)
+        JOIN Terms t ON (t.id = pe.term)
+        WHERE p.zid = %s
+        ORDER BY t.code DESC;
+        '''
+        cursor.execute(qry4, (zid,))
+        info = cursor.fetchone()
+        pCode, sCode = info
+        if info:
+          progCode = pCode
+          strmCode = sCode
+        else:
+          print(f'Invalid student ID {zid}')
+          exit(2)
+
+        #NOW WE HAVE PROGRAM CODE AND STREAM CODE; PRINT HEADER
+      qry5 = '''
+      SELECT p.family_name, p.given_names, pr.name FROM People p
+      JOIN Students s ON (s.id = p.id)
+      JOIN Program_enrolments pe ON (pe.student = s.id)
+      JOIN Programs pr ON (pe.program = pr.id)
+      JOIN Stream_enrolments se ON (se.part_of = pe.id)
+      JOIN Streams st ON (se.stream = st.id)
+      WHERE p.zid = %s AND pr.code = %s;
+      '''
+      cursor.execute(qry5, (zid, progCode,))
+      info2 = cursor.fetchone()
+
+      if info2:
+        lastName, firstName, programName = info2
+        print(f"{zid} {lastName}, {firstName}")
+        print(f"{progCode} {strmCode} {programName}")
+      else:
+        print(f'Invalid student ID {zid}')
+        exit(2)
+
+      #GET PROGRAM AND STREAM REQUIREMENTS AND ADD IT TO RESPECTIVE SETS
+      qry6 = '''
+      SELECT * FROM (
+        SELECT r.name, r.rtype, r.min_req, r.max_req, r.acadobjs, r.for_stream, r.for_program FROM Requirements r
+        JOIN Streams s ON (s.id = r.for_stream)
+        WHERE s.code = %s
+        UNION
+        SELECT r.name, r.rtype, r.min_req, r.max_req, r.acadobjs, r.for_stream, r.for_program FROM Requirements r
+        JOIN Programs p ON (p.id = r.for_program)
+        WHERE p.code = %s) AS combined_result
+      ORDER BY CASE WHEN combined_result.rtype = 'core' THEN 1
+                    WHEN combined_result.rtype = 'elective' THEN 2
+                    WHEN combined_result.rtype = 'gened' THEN 3
+                    WHEN combined_result.rtype = 'uoc' THEN 4
+                    WHEN combined_result.rtype = 'free' THEN 5
+                END
+      '''
+      cursor.execute(qry6, (strmCode, progCode,))
+      info3 = cursor.fetchall()
+      for requirement in info3:
+        rname, rrtype, rmin_req, rmax_req, racadobjs, rfor_stream, rfor_program = requirement
+        if rfor_stream is None:
+          if rrtype == 'core':
+            program_coreRequirements.append(requirement)
+          elif rrtype == 'elective':
+            program_electiveUOC = rmin_req
+            program_electiveRequirements.append(requirement)
+          elif rrtype == 'uoc':
+            program_uocRequirements = rmin_req
+        if rfor_program is None:
+          if rrtype == 'core':
+            stream_coreRequirements.append(requirement)
+          elif rrtype == 'elective':
+            stream_electiveUOC = rmin_req
+            stream_electiveRequirements.append(requirement)
+          elif rrtype == 'free':
+            if rmax_req is not None:
+              stream_free_minUOC = 6
+            elif rmax_req is None:
+              stream_free_minUOC = 36
+          elif rrtype == 'uoc':
+            stream_uocRequirements = rmin_req
+
+      #GET TRANSCRIPT OF STUDENT
+      qry7 = '''
+      SELECT DISTINCT s.code, t.code, s.title, ce.mark, ce.grade, s.uoc  FROM Course_enrolments ce
+      JOIN Students st ON (st.id = ce.student)
+      JOIN People p ON (st.id = p.id)
+      JOIN Courses c ON (c.id = ce.course)
+      JOIN Subjects s ON (c.subject = s.id)
+      JOIN Terms t ON (c.term = t.id)
+      JOIN Program_enrolments pe ON (pe.student = st.id)
+      JOIN Programs pr ON (pe.program = pr.id)
+      WHERE p.zid = %s AND pr.code = %s
+      ORDER BY t.code ASC;
+      '''
+      cursor.execute(qry7, (zid, progCode,))
+      completeSubjects = cursor.fetchall()
+
+      #REMOVE COMPLETED COURSES FROM REQUIREMENTS
+      for course in completeSubjects:
+        courseCode, term, courseTitle, Mark, Grade, UOC = course
+        if Grade in ('HD' or 'DN' or 'CR' or 'PS' or 'XE' or 'T' or 'SY' or 'EC' or 'RC'):
+          #REMOVE COURSE CODE FROM STREAM_CORE_REQUIREMENTS
+          for item in stream_coreRequirements:
+            reqName, reqType, minReq, maxReq, reqAcadobjs, reqfor_stream, reqfor_program = item
+            newacadobjs = reqAcadobjs.split(',')
+            for item in newacadobjs:
+              if courseCode == item:
+                newacadobjs.remove(item)
+                course.append(reqName)
+                stream_coreClasses.append(courseCode)
+                stream_uocCount += UOC
+
+          #REMOVE COURSE CODE FROM PROGRAM_CORE_REQUIREMENTS
+          for item in program_coreRequirements:
+            reqName, reqType, minReq, maxReq, reqAcadobjs, reqfor_stream, reqfor_program = item
+            newacadobjs = reqAcadobjs.split(',')
+            for item in newacadobjs:
+              if courseCode == item:
+                newacadobjs.remove(item)
+                course.append(reqName)
+                program_coreClasses.append(courseCode)
+                program_uocCount += UOC
+
+          #REMOVE COURSE CODE FROM STREAM_ELECTIVE_REQUIREMENTS
+          for item in stream_electiveRequirements:
+            reqName, reqType, minReq, maxReq, reqAcadobjs, reqfor_stream, reqfor_program = item
+            newacadobjs = reqAcadobjs.split(',')
+            for item in newacadobjs:
+              if courseCode == item:
+                newacadobjs.remove(item)
+                course.append(reqName)
+                stream_electiveClasses.append(courseCode)
+                stream_electiveUOCcount += UOC
+              if '#' in item:
+                hashIndex = item.index('#')
+                if courseCode[:hashIndex] == item[:hashIndex]:
+                  newacadobjs.remove(item)
+                  course.append(reqName)
+                  stream_electiveClasses.append(courseCode)
+                  stream_electiveUOCcount += UOC
+
+          #REMOVE COURSE CODE FROM PROGRAM_ELECTIVE_REQUIREMENTS
+          for item in program_electiveRequirements:
+            reqName, reqType, minReq, maxReq, reqAcadobjs, reqfor_stream, reqfor_program = item
+            newacadobjs = reqAcadobjs.split(',')
+            for item in newacadobjs:
+              if courseCode == item:
+                newacadobjs.remove(item)
+                course.append(reqName)
+                program_electiveClasses.append(courseCode)
+                program_electiveUOCcount -= UOC
+              if '#' in item:
+                hashIndex = item.index('#')
+                if courseCode[:hashIndex] == item[:hashIndex]:
+                  newacadobjs.remove(item)
+                  course.append(reqName)
+                  stream_electiveClasses.append(courseCode)
+                  program_electiveUOCcount -= UOC
+
+          #REMOVE COURSE CODE FROM GENED_REQUIREMENTS
+          if all(courseCode not in cls for cls in [stream_coreClasses, program_coreClasses, stream_electiveClasses, program_electiveClasses]):
+            while gened_UOC < 12:
+              course.append('General Education')
+              gened_UOC += UOC
+          #REMOVE COURSE CODE FROM FREE REQUIREMENTS
+          if all(courseCode not in cls for cls in [stream_coreClasses, program_coreClasses, stream_electiveClasses, program_electiveClasses]) and gened_UOC == 12:
+            if stream_free_UOC < stream_free_minUOC:
+              course.append(f'${strmCode} Free Electives')
+              stream_free_UOC += UOC
+          #ADD TO OVERFLOW CLASS
+            else:
+              UOC = 0
+              course.append('Could not be allocated')
+
+        #calculate UOC/WAM and print what is missing
+        for course in completeSubjects:
+          courseCode, term, courseTitle, Mark, Grade, UOC, nameOfRequirement = course
+          #Truncate courseTitle to 32 characters
+          newcourseTitle = courseTitle[:31]
+
+          #Set Mark to '-' if it is None
+          Mark = str(Mark) if Mark is not None else "-"
+
+          #Set Grade to '-' if it is None
+          Grade = Grade if Grade is not None else "-"
+
+          #Turn UOC from integer to string
+          newUOC = str(UOC)
+
+          #UOC Depending on Grade
+          if Grade in ['HD', 'DN', 'CR', 'PS', 'XE', 'T']:
+            newUOC += 'uoc'
+            total_achieved_uoc += UOC
+            total_attempted_uoc += UOC
+
+          elif Grade in ['AS', 'AW', 'PW', 'NA', 'RD', 'NF', 'NC', 'LE', 'PE', 'WD', 'WJ']:
+            newUOC = 'unrs'
+
+          elif Grade in ['SY', 'EC', 'RC']:
+            newUOC += 'uoc'
+            total_achieved_uoc += UOC
+
+          else:
+            newUOC = 'fail'
+            total_attempted_uoc += UOC
+
+          weighted_mark_sum += UOC * (int(Mark) if Mark != '-' else 0)
+
+          print(f"{courseCode} {term} {newcourseTitle:<32s}{Mark:>3} {Grade:>2s}  {newUOC} {nameOfRequirement}")
+
+        WAM = round(weighted_mark_sum / total_attempted_uoc, 1) if total_attempted_uoc != 0 else 0
+        print(f'UOC = {total_achieved_uoc}, WAM = {WAM}')
+
+except Exception as err:
+  print("DB error: ", err)
+finally:
+  if conn:
+    conn.close()
