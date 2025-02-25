@@ -1,6 +1,6 @@
 ### Hello 👋, this is my Project Portfolio
 
-## Hello, I’m Caleb Kim, a senior at Wake Forest University pursuing a B.A. in Computer Science with a minor in Statistics. This repository showcases my coding journey, featuring projects that span database management and Python development, collaborative group work in JavaScript, data analysis in R using RStudio and various libraries, and C programs that analyze computer system calls. I'm always eager to expand my knowledge and refine my skills through hands-on experience.
+# Hello, I’m Caleb Kim, a senior at Wake Forest University pursuing a B.A. in Computer Science with a minor in Statistics. This repository showcases my coding journey, featuring projects that span database management and Python development, collaborative group work in JavaScript, data analysis in R using RStudio and various libraries, and C programs that analyze computer system calls. I'm always eager to expand my knowledge and refine my skills through hands-on experience.
 
 ## Work Experience
 Information Technology Group Pathways Intern at HCA Healthcare (May 2024 - August 2025)
