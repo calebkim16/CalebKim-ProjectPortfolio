@@ -1,7 +1,14 @@
-# ProjectPortfolio
-Hello my name is Caleb Kim, a junior at Wake Forest University pursuiing a bachelors degree in computer science, accompanied by a minor in statistics. This GitHub repository is a compilation of my coding journey over the years. From collaborative group projects in JavaScript to solo lab assignments in Java and crafting user-interactive games with Python, I'm always eager to expand my computer science knowledge and enhance my coding skills.
+### Hello 👋, this is my Project Portfolio
 
-Languages: Java, JavaScript, Python, SQL
+Hello, I am Caleb Kim, a senior at Wake Forest University pursuing a B.A. in Computer Science with a minor in Statistics. This repository is a collection of my coding journey, showcasing projects ranging from collaborative group work in JavaScript to solo lab assignments in Java and interactive Python games. I'm always eager to expand my knowledge and refine my coding skills through hands-on experience.
 
-Contact: Phone: 908-202-8453 
-Email: calebkim0816@gmail.com
+Languages & Technologies
+Programming: Java, JavaScript, Python, SQL
+Tools & Frameworks: MATLAB, RStudio, Power BI, Tableau
+Interests
+I'm passionate about machine learning, data analytics, and software development, with a particular interest in sports analytics and health informatics.
+
+Feel free to explore my projects, and don’t hesitate to reach out!
+
+📧 Email: calebkim0816@gmail.com
+📞 Phone: 908-202-8453
