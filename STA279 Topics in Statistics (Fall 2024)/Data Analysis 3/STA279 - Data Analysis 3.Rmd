@@ -1,0 +1,337 @@
+---
+title: "STA279 - Data Analysis 3"
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-12-10"
+name: Caleb Kim
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidytext)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(tm)
+# New!
+library(stringr)
+library(ggraph)
+library(igraph)
+library(topicmodels)
+library(widyr)
+library(nnet)
+```
+
+```{r}
+# Load the data
+Essays <- read.csv("https://www.dropbox.com/scl/fi/ef73hb2bg8i00wr7rnpyx/Essays.csv?rlkey=odvevkffvvukhh94gwohtfwch&st=uxpmdwpa&dl=1")
+# Make sure generated is treated as categorical
+Essays$generated <- as.factor(Essays$generated)
+# Do some data cleaning!
+Essays <- Essays |>
+# Remove punctuation and symbols
+mutate(text = str_replace_all(text, "_", " ")) |>
+mutate(text = removePunctuation(text))|>
+mutate(id = 1:nrow(Essays))
+```
+
+## Section 1: Prompts
+a)
+```{r}
+# Tokenize the text into words and also removed stop words
+tockenized_Essays <- Essays |>
+  unnest_tokens(word, text) |>
+  filter(!word %in% stop_words$word)
+
+# Convert data into document-based matrix
+dtm_Essays <- tockenized_Essays |>
+  count(id, word, sort = TRUE) |> 
+  cast_dtm(id, word, n)
+
+# Run the model
+essay_lda <- LDA(dtm_Essays, k = 2, control = list(seed = 2222))
+```
+
+```{r}
+# Extract and organize the beta matrix from the fitted LDA Essay Model
+Essay_beta_estimates <- tidy(essay_lda, matrix = "beta")
+```
+
+```{r}
+# Alter the contents of beta_estimates and put into data 'top_terms'
+Essay_top_terms <- Essay_beta_estimates |>
+  # Group by topic
+  group_by(topic) |>
+  # Get the top 10 beta values from each topic
+  slice_max(beta, n = 10) |>
+  # Reverse the group_by function
+  ungroup() |>
+  # Order the data in decreasing beta
+  # order within each topic 
+  arrange(topic, -beta)
+```
+
+This is a plot visualizing the top terms of each topic based on their beta value in the LDA model.
+```{r}
+# Arrange the data so facet wrap keeps them in order
+Essay_top_terms_plot <- Essay_top_terms |>
+  mutate(term = reorder_within(term, beta, topic))
+
+# Create the plot 
+ggplot(Essay_top_terms_plot,aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered() +
+  labs(x = "Beta", y = "Term", title = "Top 10 Most Common Words for Each Topic")
+```
+
+
+b)
+Based on the top ten words retrieved from the two topics, I believe that topic 1 has to do with the plastic water bottle usage in India and perhaps it's affects there. Words like 'water', 'bottled', and 'market' all imply this. For the second topic, words like 'career', 'job', and 'business' make me believe that the second topic has to do with work and jobs that people have in the world.
+
+c)
+The LDA model produces two numbers, the beta values and the gamma variables for each document. The gamma gives insight into the probability that the document is associated with a certain topic. Since we also have the actual topic ("prompt_id") in the data, we can cross reference and check if the LDA model accurately predicted the topic for each document.
+
+d)
+
+```{r}
+## Do not change anything in this code!!!
+mostlikelyprompt <- function( gamma_estimates ){
+estimates_estimates <- gamma_estimates|>
+group_by(document,topic)|>
+suppressMessages(summarise(mean(gamma)))
+ndocs <- length(unique(gamma_estimates$document))
+gamma_estimates <-data.frame(gamma_estimates)
+PredictedTopic <- rep(NA,nrow(Essays))
+for( d in unique(gamma_estimates$document)){
+documentRows <- subset(gamma_estimates, document ==d )
+findMax <- which.max(documentRows[,3])
+inData <- which(Essays$id==d)
+PredictedTopic[inData] <- documentRows[findMax,2]
+}
+PredictedTopic
+}
+```
+
+```{r}
+## To use this code, do this:
+## Here, LDA_model is the name of the fitted LDA model output
+# And you can change that!!
+PredictedTopic <- mostlikelyprompt( tidy(essay_lda, matrix = "gamma") )
+PredictedTopic <- ifelse(PredictedTopic == 1, 2, 1)
+```
+
+Confusion Matrix
+```{r}
+rownames <- table("Prediction"= PredictedTopic, "Actual" = Essays$prompt_id)
+rownames(rownames) <- c("Predicted 1", "Predicted 2")
+
+# Create confusion matrix
+knitr::kable( rownames )
+```
+```{r}
+# Calculate accuracy, true positive rate, and true negative rate
+lda_accuracy = ((140 + 69) / (140 + 69 + 0 + 3)) * 100
+lda_tpr = (140 / (140 + 0)) * 100
+lda_tnr = (69 / (69 + 3)) * 100
+
+lda_results <- data.frame(lda_accuracy, lda_tpr, lda_tnr)
+knitr::kable(lda_results)
+```
+With an accuracy rate of 98.58%, we can see that the LDA model very accurately predicts the topic for each document. With an true positive rate of 100, we can see that the LDA model accurately predicts the documents pertaining to topic 1.
+
+## Section 2: Visualizing Connections
+```{r}
+word_cors <- Essays |>
+    unnest_tokens(word,text)|>
+    anti_join(stop_words, by = join_by(word)) |>
+    group_by(word) |>
+    filter(n() >= 100) |>
+    pairwise_cor(word, id, sort = TRUE)
+```
+a)
+
+```{r}
+highest_correlation <- word_cors |>
+  slice_max(correlation, n = 1)
+```
+
+The words 'bottled' and 'water' have the highest pairwise correlation with each other. These words occur together frequently in the essays because the phrase 'bottled water' is a common bigram.
+
+b)
+
+```{r}
+lowest_correlation <- word_cors |>
+  slice_min(correlation, n = 1)
+```
+The words 'bottled' and 'career' have the lowest pairwise correlation with each other. These words have no correlation with each other and therefore would associate with different topics.
+
+```{r}
+word_cors <-na.omit(word_cors)
+    word_cors |>
+    filter(correlation >= .8) |>
+    graph_from_data_frame() |>
+    ggraph(layout = "fr") +
+    geom_edge_link(aes(edge_alpha = correlation), show.legend = FALSE) +
+    geom_node_point(color = "lightblue", size = 5) +
+    geom_node_text(aes(label = name), repel = TRUE) +
+    theme_void()
+```
+
+
+c)
+```{r}
+word_cors <-na.omit(word_cors)
+    word_cors |>
+    filter(correlation >= .5) |>
+    graph_from_data_frame() |>
+    ggraph(layout = "fr") +
+    geom_edge_link(aes(edge_alpha = correlation), show.legend = FALSE) +
+    geom_node_point(color = "red", size = 5) +
+    geom_node_text(aes(label = name), repel = TRUE) +
+    theme_void()
+```
+
+
+d)
+This visualization has a few clusters of words because they all relate to a certain topic or theme. This tells us that in terms of the content of the essays, you can map out the thematic schemes in the essays and certain topics that the essay might talk about.
+
+e)
+
+```{r}
+# Filter out essays so that the data contains only essays from Prompt 1
+word_cors_prompt1 <- Essays |>
+    filter(prompt_id == 1) |>
+    unnest_tokens(word,text)|>
+    anti_join(stop_words, by = join_by(word)) |>
+    group_by(word) |>
+    filter(n() >= 100) |>
+    pairwise_cor(word, id, sort = TRUE)
+
+
+word_cors_prompt1 <-na.omit(word_cors_prompt1)
+    word_cors_prompt1 |>
+    filter(correlation >= .4) |>
+    graph_from_data_frame() |>
+    ggraph(layout = "fr") +
+    geom_edge_link(aes(edge_alpha = correlation), show.legend = FALSE) +
+    geom_node_point(color = "blue", size = 5) +
+    geom_node_text(aes(label = name), repel = TRUE) +
+    theme_void()
+```
+
+
+f)
+In the visualization for Prompt 1, we can see patterns of words like 'research, study, factors', 'communication, organization', and 'family, parents, children'. This does not match what was revealed in the LDA.
+
+g)
+
+```{r}
+# Filter out essays so that the data contains only essays from Prompt 2
+word_cors_prompt2 <- Essays |>
+    filter(prompt_id == 2) |>
+    unnest_tokens(word,text)|>
+    anti_join(stop_words, by = join_by(word)) |>
+    group_by(word) |>
+    filter(n() >= 100) |>
+    pairwise_cor(word, id, sort = TRUE, use = "pairwise")
+
+
+word_cors_prompt2 <-na.omit(word_cors_prompt2)
+    word_cors_prompt2 |>
+    filter(correlation >= .6) |>
+    graph_from_data_frame() |>
+    ggraph(layout = "fr") +
+    geom_edge_link(aes(edge_alpha = correlation), show.legend = FALSE) +
+    geom_node_point(color = "blue", size = 5) +
+    geom_node_text(aes(label = name), repel = TRUE) +
+    theme_void()
+```
+
+
+h)
+In the visualization for Prompt 2, we can see patterns of words like 'market, business, company, local', and 'consumers, product'. This shows us that the topic related to prompt 2 centers around business and money.
+
+## Section 3: Predicting Author
+a)
+Feature 1: Essay Length
+For my first feature, I chose to analyze the length of each essay. I believe this would reveal insight into the author as I predict those longer length essays were written by AI.
+```{r}
+Essays <- Essays |>
+  mutate(wordCount = str_count(text, "\\S+"))
+```
+
+Feature 2: Word Frequency of word 'the'.
+For my second feature, I chose to analyze the frequency of the word 'the'. 'The' is the most common filler word and I predict that an essay that uses that filler word more often, would be written by AI.
+```{r}
+Essays <- Essays |>
+  mutate(indicatorVar = str_count(text, "the"))
+```
+
+
+Feature 3: Frequency of Unique Words
+For my third feature, I chose to analyze the frequency of unique words in the essay. As AI would create more diverse and rich essays, I believe essays with a higher percentage of unique words would hint that it was written by AI.
+
+```{r}
+# Create new data frame
+numUnique <- Essays |>
+  unnest_tokens(word,text) |>
+  distinct(id, word) |>
+  group_by(id) |>
+  summarise(numUnique = n())
+
+# Join numUnique with Essays
+Essays <- Essays |>
+  left_join(numUnique, by = 'id')
+
+# Create column showing frequency of unique words
+Essays <- Essays |>
+  mutate(percentUnique = round((numUnique / wordCount) * 100, 2))
+```
+
+
+```{r}
+# Create Multinomial Logistic Regression Model
+essay_M1 <- glm(generated ~ WPS + BigWords + wordCount + indicatorVar + percentUnique, data = Essays, family = binomial)
+```
+b)
+
+```{r}
+# Getting summary to create the fitted regression model
+knitr::kable(essay_M1$coefficients)
+```
+c)
+Based on the model output, the number of big words in the essay as well as the percentage of unique words seem to be related to an essay being written by AI versus a human. This is shown through their coefficients.
+
+d)
+
+```{r}
+# Used model 1 to predict outcomes of all essays
+set.seed(500)
+predictions <- predict(essay_M1, type = "response")
+
+predicted.Y <- ifelse(predictions > 0.5 , 1, 0)
+
+# Create confusion matrix
+holder <- table("Prediction"= predicted.Y, "Actual" = Essays$generated)
+
+rownames(holder) <- c("Predict AI", "Predict Human")
+knitr:: kable(holder)
+```
+
+```{r}
+# Calculate accuracy, true positive rate, and true negative rate
+M1_accuracy = ((184 + 28) / (184 + 28 + 0 + 0)) * 100
+M1_tpr = (184 / (184 + 0)) * 100
+M1_tnr = (28 / (28 + 0)) * 100
+
+results <- data.frame(M1_accuracy, M1_tpr, M1_tnr)
+knitr::kable(results)
+```
+
+With an accuracy and a true positive rate of 100, it can be shown that the model perfectly reveals whether a human or an AI has written the essay.
+
