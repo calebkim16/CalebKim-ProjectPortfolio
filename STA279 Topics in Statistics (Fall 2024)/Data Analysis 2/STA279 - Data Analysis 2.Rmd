@@ -1,0 +1,343 @@
+---
+title: "STA279 - Data Analysis 2"
+output: html_document
+date: "2024-11-09"
+name: "Caleb Kim"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+# Load the data
+AmazonReviews <- read.csv("https://www.dropbox.com/scl/fi/61kcmzazw531qcwv28j52/AmazonReviews.csv?rlkey=krdesfg9luff2h5ajqph6q1bf&st=6ugb1p2f&dl=1")
+
+# Convert to a data frame
+# We have one row with a blank review, so we remove it!
+# This takes us from 2500 reviews to 2499
+AmazonReviews <- data.frame(AmazonReviews[-2086,])
+# Make sure sentiment is treated as categorical
+AmazonReviews$sentiments <- as.factor(AmazonReviews$sentiments)
+```
+
+```{r}
+library(tidytext)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(tm)
+library(forcats)
+```
+
+## Section 1: Distinguishing Words
+
+```{r}
+# Tockenized the Amazon reviews
+tidy_AmazonReviews <- AmazonReviews |>
+  unnest_tokens(word, cleaned_review)
+```
+
+```{r}
+# Calculated the tf-idf for each word based on the sentiment
+AR_tfidf <- tidy_AmazonReviews|>
+  # Count the number of times each word appears for each sentiment
+  count(sentiments, word) |>
+  # Compute the TF-IDF for each word for each sentiment
+  bind_tf_idf(word, sentiments, n) |>
+  # Arrange them in descending order
+  arrange(desc(tf_idf))
+```
+
+I removed word "mouse" from tockenized Amazon reviews because it is an objective word that simply states what the product is.
+```{r}
+# Remove Stop Words and Pronouns from the list of tockenized Amazon reviews.
+AR_tfidf <- AR_tfidf |>
+  filter(!word %in% stop_words$word) |>
+  filter(word != "mouse")
+```
+
+```{r}
+# Split the words into three different tables representing each sentiment as well as the tf-idf
+tidy_ARpositive <- AR_tfidf |>
+  filter(sentiments == "positive")
+
+tidy_ARnegative <- AR_tfidf |>
+  filter(sentiments == "negative")
+
+tidy_ARneutral <- AR_tfidf |>
+  filter(sentiments == "neutral")
+```
+
+Charts revealing top 10 positive, negative, and neutral words in the Amazon reviews
+```{r}
+# Got the top 10 positive, negative, and neutral words in the Amazon reviews and made a chart revealing them.
+library(gridExtra)
+
+ARtop10positive <- tidy_ARpositive |>
+  slice_max(n, n = 10)
+
+ARtop10negative <- tidy_ARnegative |>
+  slice_max(n, n = 10)
+
+ARtop10neutral <- tidy_ARneutral |>
+  slice_max(n, n = 10)
+
+# Created plots for top 10 positive, negative, and neutral words used in the Amazon Reviews
+g1 <- ggplot(ARtop10positive, aes(x = n, y = fct_reorder(word, n))) +
+  geom_col(fill = "blue") +
+  labs(y = NULL) + 
+  labs(x = "Top 10 Positive Words Used in the Reviews")
+
+g2 <- ggplot(ARtop10negative, aes(x = n, y = fct_reorder(word, n))) +
+  geom_col(fill = "red") +
+  labs(y = NULL) + 
+  labs(x = "Top 10 Negative Words Used in the Reviews")
+
+g3 <- ggplot(ARtop10neutral, aes(x = n, y = fct_reorder(word, n))) +
+  geom_col(fill = "green") +
+  labs(y = NULL) + 
+  labs(x = "Top 10 Neutral Words Used in the Reviews")
+
+grid.arrange(g1, g2, g3, ncol = 2)
+```
+Looking at the top ten words used in the positive reviews, I noticed words talking about qualities of the mouse that may be beneficial for the customer. Words like 'charge', 'lights', and 'battery' insinuate that the mouse's ability to change colors, it's charging abilities, and it's battery life won the hearts of many users. The most used word was 'love' and that makes sense as that word corresponds with positive feelings.
+
+In the top ten words used in the negative reviews, I see a lot of words involving money and the concept of returning the product, which makes sense. The words 'broke', 'stopped', 'charge', and 'charge' give hint to the product's inability to work or continue working.
+
+The top ten neutral words contains a good mixture of words in the positive and negative list. However, the words in the neutral list contain a more negative connotation than positive.
+
+## Section 2 Distinguishing Phrases
+```{r}
+#Tockenize the text into bigrams
+tidy_AmazonReviewsBigrams <- AmazonReviews |>
+  unnest_tokens(bigram, cleaned_review, token = "ngrams", n = 2) |> 
+  filter(!is.na(bigram))
+```
+
+I removed bigram 'wireless mouse' as it is an objective bigram and simply states what the product is.
+```{r}
+tidy_AmazonReviewsBigrams <- tidy_AmazonReviewsBigrams |>
+  filter(bigram != "wireless mouse")
+```
+
+```{r}
+# Count the number of bigrams and calculate it's tf-idf
+AR_tfidf_bigram <- tidy_AmazonReviewsBigrams|>
+  # Count the number of times each bigram appears for each sentiment
+  count(sentiments, bigram) |>
+  # Compute the TF-IDF for each bigram for each sentiment
+  bind_tf_idf(bigram, sentiments, n) |>
+  # Arrange them in descending order
+  arrange(desc(tf_idf))
+```
+
+```{r}
+# Separate the bigrams
+bigrams_separated_AmazonReviews <- AR_tfidf_bigram |>
+  separate(bigram, c("word1", "word2"), sep = " ")
+```
+
+```{r}
+# Remove the bigrams with stop words
+bigrams_clean_AmazonReviews <- bigrams_separated_AmazonReviews |>
+  # Remove any rows where word 1 is a stop word
+  filter(!word1 %in% stop_words$word) |>
+  # Remove any rows where word 2 is a stop word
+  filter(!word2 %in% stop_words$word)
+```
+
+```{r}
+# Unite the bigrams
+bigrams_unite_AmazonReviews <- bigrams_clean_AmazonReviews |>
+  unite(bigram, word1, word2, sep = " ")
+```
+
+Got the top 10 positive, negative, and neutral bigrams in the Amazon reviews and made a chart revealing them.
+```{r}
+library(gridExtra)
+ARtop10bigramspositive <- bigrams_unite_AmazonReviews |>
+  filter(sentiments == "positive") |>
+  slice_max(n, n = 10)
+
+ARtop10bigramsnegative <- bigrams_unite_AmazonReviews |>
+  filter(sentiments == "negative") |>
+  slice_max(n, n = 10)
+
+ARtop10bigramsneutral <- bigrams_unite_AmazonReviews |>
+  filter(sentiments == "neutral") |>
+  slice_max(n, n = 10)
+
+# Created plots for top 10 positive, negative, and neutral words used in the Amazon Reviews
+m1 <- ggplot(ARtop10bigramspositive, aes(x = n, y = fct_reorder(bigram, n))) +
+  geom_col(fill = "blue") +
+  labs(y = NULL) + 
+  labs(x = "Top 10 Positive Bigrams Used in the Reviews")
+
+m2 <- ggplot(ARtop10bigramsnegative, aes(x = n, y = fct_reorder(bigram, n))) +
+  geom_col(fill = "red") +
+  labs(y = NULL) + 
+  labs(x = "Top 10 Negative Bigrams Used in the Reviews")
+
+m3 <- ggplot(ARtop10bigramsneutral, aes(x = n, y = fct_reorder(bigram, n))) +
+  geom_col(fill = "green") +
+  labs(y = NULL) + 
+  labs(x = "Top 10 Neutral Bigrams Used in the Reviews")
+
+grid.arrange(m1, m2, m3, ncol = 2)
+```
+After I tockenized the reviews into bigrams, I removed the bigram 'wireless mouse' because it doesn't give insight into the review as it is it simply the product itself. 
+
+In the top ten bigrams used in the positive reviews, I noticed bigrams talking about certain functionalities of the mouse that were appreciated liked by the customers. "Led lights", "battery life", "sleep mode", and "color changing" seem to be some of the benefits of the mouse.
+
+In the top ten bigrams used in the negative reviews, I see a lot of bigrams talking about certain functionalities of the mouse that may not have been liked by the customers. "mouse stopped", "completely stopped", "wheel broke", and "battery life" seem to be some of the negatives of the mouse.
+
+The top ten neutral words contains a good mixture of words in the positive and negative list.
+
+# Section 3: Predicting Sentiment Labels with Stars
+```{r}
+# Package required to fit model 1
+library(nnet)
+```
+
+```{r}
+# Built an appropiate model to determine whether the number of stars seems to be associated with the human expert ratings
+AmazonReviews$sentiments <- relevel(AmazonReviews$sentiments, ref="negative")
+M1 <- multinom(sentiments ~ review_score, data = AmazonReviews)
+```
+```{r}
+# Getting summary to create the fitted regression model
+summary(M1)
+```
+
+$$log \left( \frac { \pi_{i(neutral)} }{ \pi_{i(negative)} }\right) = -0.13177415 + 0.1953105reviewscore_{i} $$
+$$log \left( \frac { \pi_{i(positive)} }{ \pi_{i(negative)} }\right) = 0.05878394 + 0.1561044reviewscore_{i} $$
+After controlling for all other features, for every additional 1-star increase in the review score,
+we predict the relative risk that an Amazon review was given a neutral sentiment vs. a negative sentiment increases by 21.57%.
+
+After controlling for all other features, for every additional 1-star increase in the review score,
+we predict the relative risk that an Amazon review was given a positive sentiment vs. a negative sentiment increases by 16.89%.
+
+```{r}
+# Used model 1 to predict outcomes of all Amazon reviews
+set.seed(100)
+predictions <- predict(M1)
+
+# Create confusion matrix
+knitr::kable( table("Prediction"= predictions, "Actual" = AmazonReviews$sentiments) )
+```
+
+```{r}
+# Calculate accuracy, true positive rate, and true negative rate
+accuracy = ((0 + 373 + 611) / (0 + 0 + 0 + 167 + 373 + 370 + 438 + 540 + 611)) * 100
+tpr = (611 / (611 +  370)) * 100
+tnr = (373 / (373 + 540)) * 100
+
+results <- data.frame(accuracy, tpr, tnr)
+knitr::kable(results)
+
+```
+
+Based on the confusion matrix, we can see that the model is accurate 39% of the time. A true positive rate of 62% means that it correctly identifies 62% of positive reviews and a true negative rate of 40% means that the model is less effective in pointing out reviews with neutral sentiments.
+
+#Section 4: Predicting Sentiment Labels with Sentiment Features
+
+Feature 1: Length of Amazon Review
+For my first feature, I chose to analyze the length of each Amazon review. I believe this would reveal insight into the sentiment as I predict those with negative reviews would have more to say compared to those with positive or neutral reviews.
+
+Feature 2: AFINN Score
+For my second feature, I chose to analyze the overall AFINN score for each Amazon review. This sentiment score would reveal not only the sentiment of the review, but how strong the sentiment is.
+
+```{r}
+# Get afinn lexicon
+library(textdata)
+afinnlexicon <- get_sentiments("afinn")
+
+# Calculate and create column summarizing afinn score
+afinn_byreview <- AmazonReviews |>
+  unnest_tokens(word, cleaned_review) |>
+  inner_join(get_sentiments("afinn"), by = "word") |>
+  group_by(review_id = row_number()) |>
+  summarise(afinn_score = sum(value, na.rm = TRUE))
+
+# Add afinn_byreview back into AmazonReviews
+AmazonReviews <- AmazonReviews |>
+  mutate(review_id = row_number()) |>
+  left_join(afinn_byreview, by = "review_id")
+
+# Build model
+M2 <- multinom(sentiments ~ afinn_score + cleaned_review_length , data = AmazonReviews)
+summary(M2)
+```
+
+$$log \left( \frac { \pi_{i(neutral)} }{ \pi_{i(negative)} }\right) = 0.7154792 + 0.009159608afinnscore_{i} - 0.0109158959cleanedreviewlength_i $$
+$$log \left( \frac { \pi_{i(positive)} }{ \pi_{i(negative)} }\right) = 0.4819705 - 0.019152707afinnscore_{i} + 0.0004262999cleanedreviewlength_i $$
+After controlling for all other features, for every additional 1 word increase in the review,
+we predict the relative risk that an Amazon review was given a neutral sentiment vs. a negative sentiment decreases by 1.08%.
+
+After controlling for all other features, for every additional 1 word increase in the review,
+we predict the relative risk that an Amazon review was given a positive sentiment vs. a negative sentiment increases by 0.04%.
+
+```{r}
+# Used model 2 to predict outcomes of all Amazon reviews
+set.seed(200)
+predictions2 <- predict(M2)
+
+# Create confusion matrix
+knitr::kable( table("Prediction"= predictions2, "Actual" = AmazonReviews$sentiments) )
+```
+
+```{r}
+# Calculate accuracy, true positive rate, and true negative rate
+accuracy2 = ((0 + 535 + 536) / (0 + 0 + 0 + 261 + 535 + 445 + 344 + 378 + 536)) * 100
+tpr2 = (536 / (536 +  445)) * 100
+tnr2 = (535 / (535 + 378)) * 100
+
+results2 <- data.frame(accuracy2, tpr2, tnr2)
+knitr::kable(results2)
+```
+
+Based on the confusion matrix, we can see that the model is accurate 42% of the time. A true positive rate of 54% means that it correctly identifies 54% of positive reviews and a true negative rate of 58% means that the model is more effective in pointing out reviews with neutral sentiments.
+
+# Section 5: LIWC
+```{r}
+# Load the data
+LIWC <- read.csv("https://www.dropbox.com/scl/fi/7apdafmcpjbgmou51iwf1/LIWC-22-Results-AmazonReviews-LIWC-Analysis.csv?rlkey=0bekeoh7aehsqroxic0kdf5cq&st=wxcrhfci&dl=1")
+# Convert to a data frame, and remove the same blank row
+LIWC <- data.frame(LIWC)
+LIWC <- LIWC[-2086,]
+# Make sure sentiment is treated as categorical
+LIWC$sentiments <- as.factor(LIWC$sentiments)
+```
+
+```{r}
+# Remove two columns and build model
+M3 <- multinom(sentiments ~ . - ID - cleaned_review, data = LIWC)
+summary(M3)
+```
+```{r}
+# Used model 3 to predict outcomes of all Amazon reviews
+set.seed(300)
+predictions3 <- predict(M3)
+
+# Create confusion matrix
+knitr::kable( table("Prediction"= predictions3, "Actual" = LIWC$sentiments) )
+```
+
+```{r}
+# Calculate accuracy, true positive rate, and true negative rate
+accuracy3 = ((386 + 537 + 800) / (386 + 191 + 62 + 171 + 537 + 119 + 48 + 185 + 800)) * 100
+tpr3 = (800 / (800 + 119 + 62)) * 100
+tnr3 = (537 / (537 + 191 + 185)) * 100
+
+results3 <- data.frame(accuracy3, tpr3, tnr3)
+knitr::kable(results3)
+```
+
+Based on the confusion matrix, we can see that the model is accurate 68% of the time. A true positive rate of 81% means that it correctly identifies 81% of positive reviews and a true negative rate of 58% means that the model is less effective in pointing out reviews with neutral sentiments.
+
+# Section 6: Conclusion
+Based on the three models that I have created already, I would recommend the client to use model 3, using LIWC features, to predict the sentiment of the review. This model has the highest accuracy and true positive rate out of all the models and I believe this is because it uses the most features to analyze and predict the sentiment.
+
+Overall, I would recommend the client to not pay for human raters and use the model above. It would be more cost efficient and would factor in features that humans might not be able to point out.
+
