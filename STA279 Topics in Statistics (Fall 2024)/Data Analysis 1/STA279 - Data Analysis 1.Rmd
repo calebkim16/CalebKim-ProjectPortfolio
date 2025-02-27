@@ -1,0 +1,307 @@
+---
+title: "STA279 - Data Analysis 1"
+output: html_document
+date: "2024-09-22"
+name: "Caleb Kim"
+partner: "Adam Barrow"
+---
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+# Load the data
+Federalist <- read.csv("https://www.dropbox.com/scl/fi/5hzqwsvlnym5u1mhmn0jy/Federalist.csv?rlkey=55x0p9fl02zls9ixxek64vlqy&st=9ku4q61a&dl=1")
+
+# Convert to a data frame
+Federalist <- data.frame(Federalist)
+
+# Make sure author is treated as categorical
+Federalist$author <- as.factor(Federalist$author)
+```
+```{r, warning = FALSE}
+library(tidytext)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(tm)
+```
+
+## Question 1
+```{r}
+# Load data set and filter out papers not written by Madison
+total_papers <- nrow(Federalist)
+
+madison_paper <- sum(Federalist$author == "Madison")
+
+percentage_madison <- (madison_paper / total_papers) * 100
+percentage_madison
+```
+21.5% of the papers were written by Madison.
+
+## Question 2
+```{r}
+data("stop_words")
+
+# Create feature that counts the number of words in each article
+wordCount <- Federalist |>
+  unnest_tokens(word,  text) |>
+  anti_join(stop_words, by = "word") |>
+  filter(!grepl("[0-9]", word)) |>
+  group_by(paper, author) |>
+  count()
+
+# Add feature to Federalist data set
+Federalist$numWords <- wordCount$n
+
+# Create plot to compare articles written by both authors
+ggplot(Federalist, aes(x = author, y = numWords)) + geom_boxplot( ) + labs(title = "Word Count for Hamilton vs Madison", x = "Author", y = "Word Count")
+```
+Based on the plot, it seems as if on average, the papers written by Madison contain more words than the papers written by Hamilton. However, Hamilton's longest papers are far longer than Madison's longest papers.
+
+## Question 3
+```{r}
+# Built a logistic regression model using the number of words as a feature
+m1 <- glm(author ~ numWords, data = Federalist, family = binomial)
+coefficients(m1)
+```
+$$log \left( \frac {\hat{ \pi_i }}{ 1-  \hat{\pi_i}} \right) = -3.588646134 + 0.002684634numWords_{i} $$
+
+
+## Question 4
+```{r}
+# Used the model in question 3 to predict outcomes of all articles
+probabilities <- predict(m1, type = "response")
+
+predicted.Y <- ifelse(probabilities > 0.5 , 'Predicted Madison', 'Predicted Hamilton')
+
+# Create confusion matrix
+knitr::kable( table("Prediction"= predicted.Y, "Actual" = Federalist$author) )
+
+# Calculate accuracy, true positive rate, and true negative rate
+accuracy = ((49 + 0) / (14 + 2 + 0 + 49)) * 100
+tpr = (0 / (0 +  14)) * 100
+tnr = (49 / (49 + 2)) * 100
+
+results <- data.frame(accuracy, tpr, tnr)
+knitr::kable(results)
+```
+Our logistic regression correctly predicted the author around 75% of the time but it struggled to predict the author when it was Madison.
+
+## Question 5
+```{r}
+# Filtered data set to find articles written by Madison, without stop words and numbers
+tidy_madison <- Federalist |>
+  filter(author == "Madison") |>
+  unnest_tokens(word, text) |>
+  anti_join(stop_words) |>
+  filter(!grepl("[0-9]", word))
+  
+# Filtered data set to find articles written by Hamilton, without stop words and numbers
+tidy_hamilton <- Federalist |>
+  filter(author == "Hamilton") |>
+  unnest_tokens(word, text) |>
+  anti_join(stop_words) |>
+  filter(!grepl("[0-9]", word))
+```
+
+```{r}
+# Found top 10 words used in Madison's articles
+madison_words <- tidy_madison |>
+  count(word, sort = TRUE) |>
+  slice_max(n, n=10)
+
+# Found top 10 words used in Hamilton's articles
+hamilton_words <- tidy_hamilton |>
+  count(word, sort = TRUE) |>
+  slice_max(n, n=10)
+
+library(gridExtra)
+
+# Created plots for Madison and Hamilton's top 10 most used words
+g1 <- ggplot(madison_words, aes(x = n, y = fct_reorder(word, n))) +
+  geom_col(fill = "blue") +
+  labs(y = NULL) + 
+  labs(x = "Top 10 Most Frequent Words Used in Madison's Texts")
+
+g2 <- ggplot(hamilton_words, aes(x = n, y = fct_reorder(word, n))) +
+  geom_col(fill = "red") +
+  labs(y = NULL) + 
+  labs(x = "Top 10 Most Frequent Words Used in Hamilton's Texts")
+
+grid.arrange(g1, g2, ncol = 2)
+```
+## Question 6
+Based on the plot, the words "government", "power", "people", "constitution", "authority", and "union" seem to be common in the documents written by both authors. Overall, Madison uses "constitution" more frequently than Hamilton while Hamilton uses "union" more frequently than Madison. The words "body", "national", "time" and "public" are unique to Hamilton while the words "legislative", "executive", "federal", and "powers" are unique to Madison.
+
+## Question 7
+```{r}
+# Find the top 10
+Hamilton10 <- Federalist %>%
+  filter(author =="Hamilton") |>
+  mutate(text = removePunctuation(text)) |>
+  unnest_tokens(word, text)|>
+  anti_join(stop_words) |>
+  # Remove the numbers 
+  filter(!grepl('[0-9]', word)) |>
+  # Count the number of words 
+  count(word, sort = TRUE) |>
+  # Re-order the words so the most popular is on top
+  mutate(word = reorder(word, n)) |>
+  # Choose the most 10 popular words 
+  slice(1:10)
+
+# Find the top 10
+Madison10 <- Federalist %>%
+  filter(author =="Madison") |>
+  mutate(text = removePunctuation(text)) |>
+  unnest_tokens(word, text)|>
+  anti_join(stop_words) |>
+  # Remove the numbers 
+  filter(!grepl('[0-9]', word)) |>
+  # Count the number of words 
+  count(word, sort = TRUE) |>
+  # Re-order the words so the most popular is on top
+  mutate(word = reorder(word, n)) |>
+  # Choose the most 10 popular words 
+  slice(1:10)
+```
+
+```{r}
+# Joined the top 10 words for Madison and Hamilton
+top10 <- union( Madison10$word, Hamilton10$word)
+```
+
+```{r}
+topWordsData <- function( data, classifier, top ){
+  corpus = Corpus(VectorSource(data)) 
+  
+  corpus = suppressWarnings(tm_map(corpus, content_transformer(tolower))) 
+  corpus = suppressWarnings(tm_map(corpus, removePunctuation))
+  corpus = suppressWarnings(tm_map(corpus, removeNumbers))
+  
+  # removing stop words 
+  corpus = suppressWarnings(tm_map(corpus, removeWords, stopwords("SMART"))) 
+  # removing white space 
+  corpus = suppressWarnings(tm_map(corpus, stripWhitespace))
+  
+  matrix = as.matrix(DocumentTermMatrix(corpus)) 
+
+  #converting matrix to dataframe 
+  dtm_df <- as.data.frame(matrix) 
+  
+  # add on the classifier
+  dtm_df$y <- classifier
+  
+  # Re-order columns
+  dtm_df <- dtm_df[, c(ncol(dtm_df), 1:(ncol(dtm_df)-1))]
+  
+  # Keep only certain columns
+  colnamesKeep <- which(colnames(dtm_df) %in% top)
+  
+  dtm_df <-dtm_df[, c(1,colnamesKeep)]
+  
+  dtm_df[,1] <-as.factor(dtm_df[,1])
+  
+  # Outut 
+  dtm_df
+}
+```
+
+```{r}
+# Input Federalist data into function to get top 14 words
+Top10 <- topWordsData( Federalist$text, Federalist$author, top10 )
+```
+
+## Question 7
+```{r, warning = FALSE}
+# Built a logistic regression model for top 14 commonly used words
+m2 <- glm(y ~., data = Top10, family = binomial)
+knitr:: kable(coefficients(m2))
+```
+
+## Question 8
+```{r}
+# Used the model in question 7 to make predictions for all 65 articles
+probabilities2 <- predict(m2, type = "response")
+
+predicted.Y2 <- ifelse(probabilities2 > 0.5 , 'Predicted Madison', 'Predicted Hamilton')
+
+# Created a confusion matrix for the predictions
+knitr::kable( table("Prediction"= predicted.Y2, "Actual" = Federalist$author) )
+```
+
+```{r}
+# Calculate accuracy, true positive rate, and true negative rate
+ACCURACY = ((51 + 14) / (51 + 0 + 0 + 14)) * 100
+TPR = (14 / (0 +  14)) * 100
+TNR = (51 / (51 + 0)) * 100
+
+results <- data.frame(ACCURACY, TPR, TNR)
+knitr::kable(results)
+```
+
+Our model has a 100% accuracy rate in predicting authorship of the documents.
+
+```{r}
+# Load data for papers without authors
+test <- read.csv("https://www.dropbox.com/scl/fi/yrfzwwn7olyaeq3mhb0bd/test.csv?rlkey=c6bs0ytyoomkq34aw7rx3bc62&st=tzvp12cp&dl=1")
+
+test <-data.frame(test)
+```
+
+## Question 9
+```{r}
+# Found the word counts of the test data set and added it as a feature
+wordCount2 <- test |>
+  unnest_tokens(word,  text) |>
+  anti_join(stop_words, by = "word") |>
+  filter(!grepl("[0-9]", word)) |>
+  group_by(paper) |>
+  count()
+
+test$numWords <- wordCount2$n
+
+# Used the first model to make predictions for the unnamed author articles and created a table to show predictions
+probabilities_test <- predict(m1, newdata = test, type = "response")
+
+predicted.Y_test <- ifelse(probabilities > 0.5 , 'Predicted Madison', 'Predicted Hamilton')
+
+knitr::kable(predicted.Y_test)
+```
+
+## Question 10
+```{r}
+# Used the second model to make predictions for all the papers in the text data set
+Top10_test <- topWordsData(test$text, NA, top10)
+
+probabilities_test2 <- predict(m2, newdata = Top10_test[-1], tpe = "response")
+
+predicted.Y_test2 <- ifelse(probabilities_test2 > 0.5 , 'Predicted Madison', 'Predicted Hamilton')
+
+knitr::kable(predicted.Y_test2)
+```
+
+## Question 11
+```{r, warning = FALSE}
+fullData <- data.frame(Federalist, Top10[,-1])
+fullTest <- data.frame(test, Top10_test[,-1])
+
+m3 <- glm(author ~., data = fullData[,-c(1:2)], family = binomial)
+
+probabilities_test3 <- predict(m3, newdata = fullTest, type = "response")
+
+predicted.Y_test3 <- ifelse(probabilities_test3 > 0.5 , 'Predicted Madison', 'Predicted Hamilton')
+
+knitr::kable(predicted.Y_test3)
+```
+
+## Question 12
+I would recommend the third model because it considers and factors in the word count and the fourteen specific words as features.
+
+## Question 13
+Based on the results, I would say that Hamilton was not being truthful when claiming he wrote all 15 articles in the test set. I say this because in all of the models, there is a combination of 1's and 0's which imply that Madison wrote some of the articles as well.
+
+
+
